@@ -607,6 +607,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
     except WebSocketDisconnect:
         manager.disconnect(user_id)
         await manager.broadcast_status(user_id, False)
+        @app.get("/")
+async def root():
+    return {"status": "ok", "message": "ArtMessage server is running"}
 
 # ============ ЗАПУСК ============
 if __name__ == "__main__":
