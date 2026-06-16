@@ -27,7 +27,6 @@ class Database:
         self.create_tables()
     
     def create_tables(self):
-        # Пользователи
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +41,6 @@ class Database:
             )
         ''')
         
-        # Сообщения
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +57,6 @@ class Database:
             )
         ''')
         
-        # Чаты (для закрепления)
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS chats (
                 user_id INTEGER,
@@ -72,7 +69,6 @@ class Database:
             )
         ''')
         
-        # Сессии
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -167,13 +163,9 @@ class Database:
         return True
     
     def delete_account(self, user_id):
-        # Удаляем все сообщения
         self.cursor.execute('DELETE FROM messages WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
-        # Удаляем чаты
         self.cursor.execute('DELETE FROM chats WHERE user_id = ? OR contact_id = ?', (user_id, user_id))
-        # Удаляем сессии
         self.cursor.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
-        # Удаляем пользователя
         self.cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
         self.conn.commit()
         return True
@@ -195,7 +187,6 @@ class Database:
         self.conn.commit()
         message_id = self.cursor.lastrowid
         
-        # Добавляем в чаты
         self.cursor.execute('''
             INSERT OR REPLACE INTO chats (user_id, contact_id, last_message_time)
             VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -234,16 +225,12 @@ class Database:
                    (SELECT text FROM messages 
                     WHERE (from_user_id = ? AND to_user_id = c.contact_id) 
                        OR (from_user_id = c.contact_id AND to_user_id = ?)
-                    ORDER BY timestamp DESC LIMIT 1) as last_message,
-                   (SELECT timestamp FROM messages 
-                    WHERE (from_user_id = ? AND to_user_id = c.contact_id) 
-                       OR (from_user_id = c.contact_id AND to_user_id = ?)
-                    ORDER BY timestamp DESC LIMIT 1) as last_message_time
+                    ORDER BY timestamp DESC LIMIT 1) as last_message
             FROM chats c
             JOIN users u ON c.contact_id = u.id
             WHERE c.user_id = ?
             ORDER BY c.pinned DESC, c.last_message_time DESC
-        ''', (user_id, user_id, user_id, user_id, user_id))
+        ''', (user_id, user_id, user_id))
         return self.cursor.fetchall()
     
     def mark_message_as_read(self, message_id):
@@ -278,7 +265,6 @@ class Database:
         self.conn.commit()
     
     def delete_chat(self, user_id, contact_id):
-        # Удаляем переписку для обоих
         self.cursor.execute('''
             DELETE FROM messages 
             WHERE (from_user_id = ? AND to_user_id = ?) 
@@ -293,7 +279,6 @@ class Database:
         return True
     
     def delete_all_chats(self, user_id):
-        # Удаляем все чаты пользователя
         self.cursor.execute('''
             DELETE FROM messages 
             WHERE from_user_id = ? OR to_user_id = ?
@@ -341,7 +326,6 @@ manager = ConnectionManager()
 
 # ============ API ЭНДПОЙНТЫ ============
 
-# Регистрация
 @app.post("/register")
 async def register(login: str, username: str, password: str):
     if len(password) < 8:
@@ -353,7 +337,6 @@ async def register(login: str, username: str, password: str):
         raise HTTPException(status_code=400, detail="Логин или юзернейм уже заняты")
     return {"success": True}
 
-# Вход
 @app.post("/login")
 async def login(login: str, password: str):
     db = Database()
@@ -363,14 +346,12 @@ async def login(login: str, password: str):
     token, user_id, username = result
     return {"token": token, "user_id": user_id, "username": username}
 
-# Выход
 @app.post("/logout")
 async def logout(token: str):
     db = Database()
     db.logout_user(token)
     return {"success": True}
 
-# Проверка сессии
 @app.get("/check_session")
 async def check_session(token: str):
     db = Database()
@@ -385,7 +366,6 @@ async def check_session(token: str):
         "description": user[4]
     }
 
-# Получить профиль
 @app.get("/profile/{user_id}")
 async def get_profile(user_id: int):
     db = Database()
@@ -403,7 +383,6 @@ async def get_profile(user_id: int):
         "last_seen": user[7]
     }
 
-# Поиск пользователей
 @app.get("/search/{query}")
 async def search_users(query: str, user_id: int):
     db = Database()
@@ -419,7 +398,6 @@ async def search_users(query: str, user_id: int):
         for u in users
     ]
 
-# Обновить юзернейм
 @app.put("/update_username")
 async def update_username(user_id: int, new_username: str):
     db = Database()
@@ -428,7 +406,6 @@ async def update_username(user_id: int, new_username: str):
         raise HTTPException(status_code=400, detail="Юзернейм уже занят")
     return {"success": True}
 
-# Обновить пароль
 @app.put("/update_password")
 async def update_password(user_id: int, old_password: str, new_password: str):
     if len(new_password) < 8:
@@ -436,7 +413,6 @@ async def update_password(user_id: int, old_password: str, new_password: str):
     
     db = Database()
     user = db.get_user_by_id(user_id)
-    # Проверяем старый пароль
     db.cursor.execute('SELECT password FROM users WHERE id = ?', (user_id,))
     current_hash = db.cursor.fetchone()[0]
     if not bcrypt.checkpw(old_password.encode(), current_hash.encode()):
@@ -445,21 +421,18 @@ async def update_password(user_id: int, old_password: str, new_password: str):
     db.update_password(user_id, new_password)
     return {"success": True}
 
-# Обновить описание
 @app.put("/update_description")
 async def update_description(user_id: int, description: str):
     db = Database()
     db.update_description(user_id, description)
     return {"success": True}
 
-# Удалить аккаунт
 @app.delete("/delete_account/{user_id}")
 async def delete_account(user_id: int):
     db = Database()
     db.delete_account(user_id)
     return {"success": True}
 
-# Получить чаты
 @app.get("/chats/{user_id}")
 async def get_chats(user_id: int):
     db = Database()
@@ -473,12 +446,11 @@ async def get_chats(user_id: int):
             "last_seen": c[4],
             "pinned": c[5],
             "last_message_time": c[6],
-            "last_message": c[7]
+            "last_message": c[7] if c[7] else ""
         }
         for c in chats
     ]
 
-# Получить сообщения чата
 @app.get("/messages/{user_id}/{contact_id}")
 async def get_messages(user_id: int, contact_id: int, limit: int = 50):
     db = Database()
@@ -489,7 +461,7 @@ async def get_messages(user_id: int, contact_id: int, limit: int = 50):
             "id": m[0],
             "from_user_id": m[1],
             "to_user_id": m[2],
-            "text": m[3],
+            "text": m[3] if m[3] else "",
             "file_path": m[4],
             "file_type": m[5],
             "timestamp": m[6],
@@ -499,28 +471,24 @@ async def get_messages(user_id: int, contact_id: int, limit: int = 50):
         for m in messages
     ]
 
-# Закрепить чат
 @app.put("/pin_chat")
 async def pin_chat(user_id: int, contact_id: int):
     db = Database()
     db.pin_chat(user_id, contact_id)
     return {"success": True}
 
-# Открепить чат
 @app.put("/unpin_chat")
 async def unpin_chat(user_id: int, contact_id: int):
     db = Database()
     db.unpin_chat(user_id, contact_id)
     return {"success": True}
 
-# Удалить чат
 @app.delete("/delete_chat")
 async def delete_chat(user_id: int, contact_id: int):
     db = Database()
     db.delete_chat(user_id, contact_id)
     return {"success": True}
 
-# Удалить все чаты
 @app.delete("/delete_all_chats/{user_id}")
 async def delete_all_chats(user_id: int):
     db = Database()
@@ -538,8 +506,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         return
     
     user_id = user[0]
-    username = user[1]
-    
     await manager.connect(websocket, user_id)
     
     try:
@@ -548,23 +514,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
             message_data = json.loads(data)
             
             if message_data['type'] == 'message':
-                # Отправка сообщения
                 to_user_id = message_data['to_user_id']
                 text = message_data.get('text', '')
-                file_path = message_data.get('file_path')
-                file_type = message_data.get('file_type')
                 
-                # Сохраняем в БД
                 db = Database()
-                message = db.save_message(user_id, to_user_id, text, file_path, file_type)
+                message = db.save_message(user_id, to_user_id, text)
                 
-                # Отправляем отправителю (статус sending → sent)
                 msg_data = {
                     'type': 'message',
                     'id': message[0],
                     'from_user_id': user_id,
                     'to_user_id': to_user_id,
-                    'text': message[3],
+                    'text': message[3] if message[3] else "",
                     'file_path': message[4],
                     'file_type': message[5],
                     'timestamp': message[6],
@@ -572,20 +533,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                     'is_read': 0
                 }
                 await manager.send_personal(msg_data, user_id)
-                
-                # Отправляем получателю
                 await manager.send_personal(msg_data, to_user_id)
-                
-                # Обновляем статус в БД
                 db.update_message_status(message[0], 'sent')
                 
             elif message_data['type'] == 'read':
-                # Отметка о прочтении
                 message_id = message_data['message_id']
                 db = Database()
                 db.mark_message_as_read(message_id)
-                
-                # Уведомляем отправителя
                 message = db.get_message_by_id(message_id)
                 if message:
                     read_data = {
@@ -595,24 +549,17 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                     }
                     await manager.send_personal(read_data, message[1])
                     
-            elif message_data['type'] == 'typing':
-                # Статус печатает
-                typing_data = {
-                    'type': 'typing',
-                    'from_user_id': user_id,
-                    'to_user_id': message_data['to_user_id']
-                }
-                await manager.send_personal(typing_data, message_data['to_user_id'])
-                
     except WebSocketDisconnect:
         manager.disconnect(user_id)
         await manager.broadcast_status(user_id, False)
-        @app.get("/")
+
+# ============ HEALTH CHECK ============
+@app.get("/")
 async def root():
     return {"status": "ok", "message": "ArtMessage server is running"}
 
 # ============ ЗАПУСК ============
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
